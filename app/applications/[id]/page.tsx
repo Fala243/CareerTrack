@@ -1,10 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Application } from "@/lib/types";
-
-// LOCAL LEARNING ONLY: localhost:3000 only works while the dev server runs on
-// this machine. Revisit this address before any deployment.
-const API_URL = "http://localhost:3000/api/applications";
+import { getOrigin } from "@/lib/origin";
 
 const stageLabels: Record<Application["stage"], string> = {
   applied: "Applied",
@@ -14,9 +11,11 @@ const stageLabels: Record<Application["stage"], string> = {
 };
 
 async function getApplication(id: string): Promise<Application> {
-  const response = await fetch(`${API_URL}/${encodeURIComponent(id)}`, {
-    cache: "no-store",
-  });
+  const origin = await getOrigin();
+  const response = await fetch(
+    `${origin}/api/applications/${encodeURIComponent(id)}`,
+    { cache: "no-store" },
+  );
 
   // notFound() throws, so nothing below runs for an unknown ID. It is not
   // inside a try/catch, so network errors and HTTP 500s are never turned into 404s.

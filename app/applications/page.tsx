@@ -1,13 +1,13 @@
 import Link from "next/link";
 import type { Application } from "@/lib/types";
+import { getOrigin } from "@/lib/origin";
 import ApplicationView from "./ApplicationView";
 
-// LOCAL LEARNING ONLY: localhost:3000 only works while the dev server runs on
-// this machine. Revisit this address before any deployment.
-const API_URL = "http://localhost:3000/api/applications";
-
 async function getApplications(): Promise<Application[]> {
-  const response = await fetch(API_URL, { cache: "no-store" });
+  const origin = await getOrigin();
+  const response = await fetch(`${origin}/api/applications`, {
+    cache: "no-store",
+  });
   if (!response.ok) {
     throw new Error(
       `Failed to load applications: ${response.status} ${response.statusText}`,
