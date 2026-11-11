@@ -1,4 +1,4 @@
-import { applications, nextApplicationId } from "@/lib/applications";
+import { createApplication, listApplications } from "@/lib/applications";
 import type { Application } from "@/lib/types";
 
 const stages: Application["stage"][] = [
@@ -31,8 +31,20 @@ function isDateString(value: unknown): value is string {
   );
 }
 
+// Any failure that is not the client's fault (for example the database being
+// unreachable). The details go to the server log only; the browser gets a
+// generic message, never SQL, credentials or the connection string.
+function serverError(error: unknown) {
+  console.error("CareerTrack API error:", error);
+  return Response.json({ error: "Internal server error" }, { status: 500 });
+}
+
 export async function GET() {
-  return Response.json(applications);
+  try {
+    return Response.json(await listApplications());
+  } catch (error) {
+    return serverError(error);
+  }
 }
 
 export async function POST(request: Request) {
@@ -47,7 +59,7 @@ export async function POST(request: Request) {
     return badRequest("Request body must be a JSON object");
   }
 
-  // A client-supplied `id` is never read: the server generates it.
+  // A client-supplied `id` is never read: the database generates it.
   const { company, role, stage, appliedDate } = body as Record<
     string,
     unknown
@@ -68,14 +80,15 @@ export async function POST(request: Request) {
     return badRequest("appliedDate must be a valid date in YYYY-MM-DD format");
   }
 
-  const created: Application = {
-    id: nextApplicationId(),
-    company: company.trim(),
-    role: role.trim(),
-    stage,
-    appliedDate,
-  };
-  applications.push(created);
-
-  return Response.json(created, { status: 201 });
+  try {
+    const created = await createApplication({
+      company: company.trim(),
+      role: role.trim(),
+      stage,
+      appliedDate,
+    });
+    return Response.json(created, { status: 201 });
+  } catch (error) {
+    return serverError(error);
+  }
 }

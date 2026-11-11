@@ -6,8 +6,13 @@ import AddApplicationForm from "./AddApplicationForm";
 import ApplicationBoard from "./ApplicationBoard";
 import ApplicationList from "./ApplicationList";
 
-// Browser-only copy of the applications; never read during server rendering.
-const STORAGE_KEY = "careertrack-applications";
+// Browser-only: the user's Manual order, as a list of application ids and
+// nothing else. The records themselves always come from the database.
+const ORDER_KEY = "careertrack-manual-order";
+
+// Old key that held full Application records. Never read as data; it is only
+// removed, once, after the first successful start-up below.
+const LEGACY_STORAGE_KEY = "careertrack-applications";
 
 type Filter = "all" | Application["stage"];
 type Sort = "recent" | "oldest" | "company" | "manual";
@@ -40,19 +45,33 @@ const viewOptions: { value: View; label: string }[] = [
   { value: "board", label: "Board" },
 ];
 
-// Stored text is untrusted: accept an entry only if it has the shape of an
-// Application, so a bad value can never reach the sort or the views.
-function isApplication(value: unknown): value is Application {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
+// Stored text is untrusted: it is used only if it is a JSON array of strings.
+function isStringArray(value: unknown): value is string[] {
   return (
-    typeof record.id === "string" &&
-    typeof record.company === "string" &&
-    typeof record.role === "string" &&
-    typeof record.stage === "string" &&
-    (Object.keys(stageLabels) as string[]).includes(record.stage) &&
-    typeof record.appliedDate === "string"
+    Array.isArray(value) && value.every((entry) => typeof entry === "string")
   );
+}
+
+// Pure. Puts `records` (always the database's data) in the saved id order.
+// Saved ids that no longer exist are ignored, repeated ids count once, and
+// records missing from the saved order go to the end in their current order.
+function applyManualOrder(
+  records: Application[],
+  savedIds: string[],
+): Application[] {
+  const remaining = new Map(records.map((record) => [record.id, record]));
+  const ordered: Application[] = [];
+  for (const id of savedIds) {
+    const record = remaining.get(id);
+    if (record) {
+      ordered.push(record);
+      remaining.delete(id);
+    }
+  }
+  for (const record of records) {
+    if (remaining.has(record.id)) ordered.push(record);
+  }
+  return ordered;
 }
 
 // Code-unit comparison: right for YYYY-MM-DD dates and the APP-### IDs.
@@ -91,43 +110,63 @@ export default function ApplicationView({
 }: {
   applications: Application[];
 }) {
-  // Local copy seeded from the server-rendered prop; new records are
-  // appended here after the POST returns 201.
+  // Local copy seeded from the server-rendered (database) prop; its ORDER is
+  // the Manual order. New records are appended here after the POST returns 201.
   const [items, setItems] = useState<Application[]>(applications);
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("recent");
   const [view, setView] = useState<View>("list");
 
-  // False until the first localStorage read attempt has finished. It is state
+  // False until the first read of the saved order has finished. It is state
   // (not a ref) so the write effect below sees false in the mount render.
   const [storageReady, setStorageReady] = useState(false);
 
-  // Read effect: runs once after mount, in the browser only. Valid saved
-  // data replaces the server data; anything else leaves it unchanged.
+  // Read effect: runs once after mount, in the browser only. A saved id list
+  // only re-orders the database records; anything else keeps the server order.
   useEffect(() => {
+    let savedOrder: string[] | null = null;
+    let storageReadable = false;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(ORDER_KEY);
+      storageReadable = true;
       if (raw !== null) {
         const parsed: unknown = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.every(isApplication)) {
-          // Reading browser-only storage after mount is the one place this
-          // state must be set from an effect (it cannot be read during render).
-          // eslint-disable-next-line react-hooks/set-state-in-effect
-          setItems(parsed);
-        }
+        if (isStringArray(parsed)) savedOrder = parsed;
       }
     } catch {
-      // Storage blocked or text is not valid JSON: keep the server data.
+      // Storage blocked, or text is not valid JSON: keep the server order.
+    }
+
+    if (savedOrder !== null) {
+      const order = savedOrder;
+      // Reading browser-only storage after mount is the one place this
+      // state must be set from an effect (it cannot be read during render).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setItems((previous) => applyManualOrder(previous, order));
+    }
+
+    // Start-up succeeded (the database records are on screen): the old
+    // full-record copy is no longer needed, so remove it. Never before this.
+    if (storageReadable) {
+      try {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      } catch {
+        // Ignore: the old key is harmless, it is never read.
+      }
     }
     setStorageReady(true);
   }, []);
 
-  // Write effect: saves `items` after every change, but never before the
-  // read attempt has finished, so the server data cannot overwrite saved data.
+  // Write effect: saves ONLY the id order after every change, but never before
+  // the read attempt has finished, so the server order cannot overwrite a
+  // saved order that has not been read yet.
   useEffect(() => {
     if (!storageReady) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      localStorage.setItem(
+        ORDER_KEY,
+        JSON.stringify(items.map((application) => application.id)),
+      );
     } catch {
       // Quota exceeded or storage blocked: ignore; the screen is unaffected.
     }

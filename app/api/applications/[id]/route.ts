@@ -1,4 +1,8 @@
-import { applications } from "@/lib/applications";
+import {
+  deleteApplication,
+  getApplication,
+  updateApplication,
+} from "@/lib/applications";
 import type { Application } from "@/lib/types";
 
 const stages: Application["stage"][] = [
@@ -10,6 +14,10 @@ const stages: Application["stage"][] = [
 
 function badRequest(message: string) {
   return Response.json({ error: message }, { status: 400 });
+}
+
+function notFoundResponse() {
+  return Response.json({ error: "Application not found" }, { status: 404 });
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -31,89 +39,112 @@ function isDateString(value: unknown): value is string {
   );
 }
 
+// Any failure that is not the client's fault (for example the database being
+// unreachable). The details go to the server log only; the browser gets a
+// generic message, never SQL, credentials or the connection string.
+function serverError(error: unknown) {
+  console.error("CareerTrack API error:", error);
+  return Response.json({ error: "Internal server error" }, { status: 500 });
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const application = applications.find((item) => item.id === id);
+  try {
+    const { id } = await params;
+    const application = await getApplication(id);
 
-  if (!application) {
-    return Response.json({ error: "Application not found" }, { status: 404 });
+    if (!application) {
+      return notFoundResponse();
+    }
+
+    return Response.json(application);
+  } catch (error) {
+    return serverError(error);
   }
-
-  return Response.json(application);
 }
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const application = applications.find((item) => item.id === id);
-
-  if (!application) {
-    return Response.json({ error: "Application not found" }, { status: 404 });
-  }
-
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return badRequest("Request body must be valid JSON");
-  }
+    const { id } = await params;
 
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return badRequest("Request body must be a JSON object");
-  }
+    // An unknown id is a 404 before the body is even read (as before).
+    if (!(await getApplication(id))) {
+      return notFoundResponse();
+    }
 
-  // A client-supplied `id` is never read: the existing id is preserved.
-  const { company, role, stage, appliedDate } = body as Record<
-    string,
-    unknown
-  >;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return badRequest("Request body must be valid JSON");
+    }
 
-  if (!isNonEmptyString(company)) {
-    return badRequest("company must be a non-empty string");
-  }
-  if (!isNonEmptyString(role)) {
-    return badRequest("role must be a non-empty string");
-  }
-  if (!isStage(stage)) {
-    return badRequest(
-      "stage must be one of: applied, interview, offer, rejected",
-    );
-  }
-  if (!isDateString(appliedDate)) {
-    return badRequest("appliedDate must be a valid date in YYYY-MM-DD format");
-  }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return badRequest("Request body must be a JSON object");
+    }
 
-  // Every field is validated above, so the record is never half-updated.
-  // Mutating the object in place updates the shared array used by the
-  // list, detail, and homepage reads.
-  application.company = company.trim();
-  application.role = role.trim();
-  application.stage = stage;
-  application.appliedDate = appliedDate;
+    // A client-supplied `id` is never read: the existing id is preserved.
+    const { company, role, stage, appliedDate } = body as Record<
+      string,
+      unknown
+    >;
 
-  return Response.json(application);
+    if (!isNonEmptyString(company)) {
+      return badRequest("company must be a non-empty string");
+    }
+    if (!isNonEmptyString(role)) {
+      return badRequest("role must be a non-empty string");
+    }
+    if (!isStage(stage)) {
+      return badRequest(
+        "stage must be one of: applied, interview, offer, rejected",
+      );
+    }
+    if (!isDateString(appliedDate)) {
+      return badRequest(
+        "appliedDate must be a valid date in YYYY-MM-DD format",
+      );
+    }
+
+    // One UPDATE statement changes all four fields together, so the record is
+    // never half-updated.
+    const updated = await updateApplication(id, {
+      company: company.trim(),
+      role: role.trim(),
+      stage,
+      appliedDate,
+    });
+
+    // Deleted by someone else after the check above: the same 404.
+    if (!updated) {
+      return notFoundResponse();
+    }
+
+    return Response.json(updated);
+  } catch (error) {
+    return serverError(error);
+  }
 }
 
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const index = applications.findIndex((item) => item.id === id);
+  try {
+    const { id } = await params;
 
-  if (index === -1) {
-    return Response.json({ error: "Application not found" }, { status: 404 });
+    if (!(await deleteApplication(id))) {
+      return notFoundResponse();
+    }
+
+    // 204 No Content: no JSON and no body.
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    return serverError(error);
   }
-
-  // splice() removes exactly this record from the shared array in place, so
-  // the list, detail and homepage reads all see the deletion.
-  applications.splice(index, 1);
-
-  // 204 No Content: no JSON and no body.
-  return new Response(null, { status: 204 });
 }
