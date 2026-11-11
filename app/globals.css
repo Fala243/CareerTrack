@@ -159,6 +159,43 @@ a {
   letter-spacing: 0.02em;
 }
 
+/* ---------- Global navigation (root layout) ---------- */
+.site-nav {
+  flex-shrink: 0;
+  background: var(--navy);
+  padding-block: var(--space-0);
+  padding-inline: max(var(--space-2), calc((100% - var(--container)) / 2));
+}
+
+.site-nav-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0);
+  list-style: none;
+}
+
+.site-nav-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: #e2e8f0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.site-nav-list a:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.site-nav-list a:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 0;
+}
+
 /* ---------- Welcome ---------- */
 .welcome {
   display: flex;
@@ -930,6 +967,53 @@ a {
   color: var(--stage-rejected-fg);
 }
 
+/* ---------- Loading skeleton (detail page loading.tsx) ---------- */
+/* Static grey blocks: no animation, so nothing to switch off for
+   prefers-reduced-motion. #e8eef6 is the same cool gray as .company-badge. */
+.skeleton {
+  display: block;
+  background: #e8eef6;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-title {
+  box-sizing: border-box;
+  width: min(100%, 18rem);
+  /* Same size and line-height as the real h1 (.welcome h1), so the box is
+     exactly as tall as the heading's line. The bar is drawn inside the padding. */
+  height: calc(clamp(var(--text-xl), 3vw, var(--text-2xl)) * 1.2);
+  padding-block: 0.25rem;
+  background-clip: content-box;
+}
+
+.skeleton-line {
+  box-sizing: border-box;
+  width: min(100%, 12rem);
+  /* One 1.5-line-height text row (24px), like the real company line. */
+  height: 1.5rem;
+  padding-block: 0.25rem;
+  background-clip: content-box;
+}
+
+.skeleton-pill {
+  width: 5rem;
+  height: 1.625rem;
+  border-radius: var(--radius-pill);
+}
+
+.skeleton-value {
+  height: 1.25rem;
+  margin-block: 0.125rem;
+}
+
+.skeleton-id {
+  width: 3.5rem;
+}
+
+.skeleton-date {
+  width: 6rem;
+}
+
 /* ---------- Footer ---------- */
 .site-footer {
   border-top: 1px solid var(--border);
@@ -941,7 +1025,8 @@ a {
 /* ---------- Motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   .button-primary,
-  .control-button {
+  .control-button,
+  .site-nav-list a {
     transition: none;
   }
 }
